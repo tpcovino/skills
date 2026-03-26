@@ -1,0 +1,66 @@
+---
+title: "snotelr"
+author: 
+date: 
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+#install.packages("snotelr")
+library(snotelr)
+library(leaflet)
+library(dataRetrieval)
+
+```
+
+
+```{r}
+snotel_sites <- snotel_info()
+
+snotel_map <- leaflet() %>% 
+  addProviderTiles("OpenStreetMap") %>% 
+  addAwesomeMarkers(data = snotel_sites, lat = ~latitude, lng = ~longitude, label = ~elev, 
+                    popup = ~paste("Start:", start, "<br>End date:", end)) 
+
+snotel_map
+```
+
+```{r}
+dat <- as_tibble(snotel_download(site_id = c(482), internal = TRUE)) %>% 
+  # this converts the date string into a date object
+  mutate(date = ymd(date)) %>% 
+  # this adds a column that contains the water year
+  mutate(wtr_yr = if_else(month(date) > 9, 
+                          year(date) + 1, 
+                          year(date))) %>% 
+  select(description, site_id, date, wtr_yr, 
+         swe = snow_water_equivalent, 
+         p = precipitation, 
+         p_cum = precipitation_cumulative, 
+         temp_max = temperature_max, 
+         temp_min = temperature_min, 
+         temp_mean = temperature_mean)
+```
+
+```{r}
+dat %>% 
+  ggplot(aes(x = date, y = swe)) +
+  geom_line()
+
+
+dat_sum <- dat %>% 
+  group_by(wtr_yr) %>% 
+  reframe(tot_swe = max(swe))
+
+```
+
+
+
+
+

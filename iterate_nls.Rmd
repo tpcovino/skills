@@ -1,0 +1,161 @@
+---
+title: "nlsLM iteration"
+author: "Tim Covino"
+date: "2025-02-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dataRetrieval)
+library(tidyverse)
+library(broom)
+#install.packages("minpack.lm")
+library(minpack.lm)
+```
+
+```{r}
+site <- "06192500"
+```
+
+```{r}
+rate_df <- readNWISmeas(siteNumbers = site)  %>% 
+  select(site_no, date = measurement_dt, stage_ft = gage_height_va, q_cfs = discharge_va, qual = measured_rating_diff)
+```
+
+```{r}
+rate_df_a <- rate_df %>% 
+  mutate(year = year(date)) %>% 
+  filter(year > 1975, year < 1997) %>% 
+  filter(stage_ft != "NA", q_cfs != "NA", qual != "NA")
+```
+
+```{r}
+rate_df_b <- rate_df %>% 
+  mutate(year = year(date)) %>% 
+  filter(year > 1996, year < 2010) %>% 
+  filter(stage_ft != "NA", q_cfs != "NA", qual != "NA")
+```
+
+```{r}
+rate_df_c <- rate_df %>% 
+  mutate(year = year(date)) %>% 
+  filter(year > 2009, year < 2022) %>% 
+  filter(stage_ft != "NA", q_cfs != "NA", qual != "NA")
+```
+
+
+## Combine all three models in a loop and plot series:
+```{r}
+all_df <- list(rate_df_a, rate_df_b, rate_df_c)
+all_names <- c("rate_df_a", "rate_df_b", "rate_df_c")
+
+a <- 0
+C <- 1
+n <- 1
+
+results_list <- list() #initialize an empty list to store loop iteration outputs
+
+for (i in seq_along(all_df)) {  
+  tmp_model <- nlsLM(q_cfs ~ C * (stage_ft - a)^n, 
+                      start = list(C = C, n = n), 
+                      data = all_df[[i]])  # i stands for '1,2, or 3' in this case so the first iteration of the loop will work on all_df[[1]], the second iteration on all_df[[2]]... etc. 
+
+  # Extract the desired coefficients from 'tmp_model' and store them as a row in the 'results_list'
+  results_list[[i]] <- tibble(names = all_names[i],  # Model name
+    C = coef(tmp_model)["C"],              # Extracted C value
+    n = coef(tmp_model)["n"]               # Extracted n value
+  )
+}
+
+# Combine all rows into a single tibble
+results <- bind_rows(results_list)
+
+# Print final tibble
+print(results)
+
+```
+
+Now we will generate another loop that will iterate through each our model dataframes (all_df) and the new result tibble.
+```{r}
+# Loop over each row in 'results' to generate plots for each of the models:
+
+for (i in seq_along(all_df)) {
+  # Get the corresponding model (data) and coefficients (C and n)
+  model_data <- all_df[[i]]
+  C_value <- results$C[i]
+  n_value <- results$n[i]
+  model_name <- results$names[i]
+  
+  # Create the title for each plot dynamically using the appropriate model name
+  site_title <- paste("Gage", site, "Model", substr(model_name, nchar(model_name), nchar(model_name))) #this takes the last character from the model name and pastes it into our plot title
+  
+  # Create the dynamic annotation text with the formula (C and n)
+  eqn_label <- paste("Q ==", round(C_value, 0), " * x * Stage^", round(n_value, 2)) 
+
+  # Define the formula for the smoothing line (custom formula with C and n)
+  formula <- y ~ C * (x - a)^n
+  
+  # Create the plot
+  p_tmp <- ggplot(model_data, aes(x = stage_ft, y = q_cfs)) +
+    geom_point() +
+    theme_linedraw(base_size = 16) +
+    labs(x = "Gage height (ft)", 
+         y = "Discharge (cfs)", 
+         title = site_title, 
+         subtitle = paste(min(model_data$year), "to", max(model_data$year))) +
+    lims(x = c(0, 10), y = c(0, 40000)) +
+    geom_smooth(method = "nls", 
+                formula = formula, 
+                se = FALSE, 
+                method.args = list(start = list(C = C_value, n = n_value))) +
+    annotate(
+      geom = "text", 
+      size = 8, 
+      x = 5, 
+      y = 31000, 
+      label = eqn_label, 
+      parse = TRUE
+    )
+assign(paste("plot_", i, sep=""), p_tmp)
+}
+
+plot_1
+plot_2
+plot_3
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
